@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Icon from '@/components/ui/icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 
 const mockVideos = [
   {
@@ -47,6 +50,13 @@ const Index = () => {
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoDescription, setVideoDescription] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const currentVideo = videos[currentVideoIndex];
 
@@ -68,6 +78,89 @@ const Index = () => {
     } else if (direction === 'up' && currentVideoIndex > 0) {
       setCurrentVideoIndex(currentVideoIndex - 1);
     }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      toast({
+        title: 'Ошибка',
+        description: 'Пожалуйста, выберите видео файл',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      toast({
+        title: 'Ошибка',
+        description: 'Размер файла не должен превышать 100MB',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setVideoFile(file);
+    const videoUrl = URL.createObjectURL(file);
+    setVideoPreview(videoUrl);
+  };
+
+  const handleUpload = () => {
+    if (!videoFile) {
+      toast({
+        title: 'Ошибка',
+        description: 'Выберите видео для загрузки',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    const interval = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          const newVideo = {
+            id: videos.length + 1,
+            username: 'my_username',
+            description: videoDescription || 'Новое видео',
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            videoUrl: videoPreview || '#',
+            liked: false,
+            favorited: false,
+          };
+          setVideos([newVideo, ...videos]);
+          setIsUploading(false);
+          setShowUploadDialog(false);
+          setVideoPreview(null);
+          setVideoFile(null);
+          setVideoDescription('');
+          setUploadProgress(0);
+          setCurrentTab('profile');
+          toast({
+            title: 'Успешно!',
+            description: 'Видео опубликовано',
+          });
+          return 100;
+        }
+        return prev + 10;
+      });
+    }, 200);
+  };
+
+  const resetUploadDialog = () => {
+    setShowUploadDialog(false);
+    setVideoPreview(null);
+    setVideoFile(null);
+    setVideoDescription('');
+    setUploadProgress(0);
+    setIsUploading(false);
   };
 
   const GoldAvatar = ({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) => {
@@ -358,21 +451,97 @@ const Index = () => {
         </div>
       </nav>
 
-      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent className="bg-card border-border">
+      <Dialog open={showUploadDialog} onOpenChange={resetUploadDialog}>
+        <DialogContent className="bg-card border-border max-w-lg">
           <DialogHeader>
             <DialogTitle>Загрузить видео</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="border-2 border-dashed border-border rounded-lg p-12 text-center cursor-pointer hover:border-accent transition-colors">
-              <Icon name="Upload" size={48} className="mx-auto mb-4 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Нажмите или перетащите видео</p>
-              <p className="text-xs text-muted-foreground mt-1">MP4, MOV до 100MB</p>
-            </div>
-            <Input placeholder="Добавьте описание..." className="bg-secondary border-border" />
-            <Button className="w-full bg-accent text-accent-foreground hover:bg-accent/90">
-              Опубликовать
-            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            
+            {!videoPreview ? (
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-border rounded-lg p-12 text-center cursor-pointer hover:border-accent transition-colors"
+              >
+                <Icon name="Upload" size={48} className="mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Нажмите или перетащите видео</p>
+                <p className="text-xs text-muted-foreground mt-1">MP4, MOV до 100MB</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-lg overflow-hidden bg-black">
+                  <video
+                    src={videoPreview}
+                    controls
+                    className="w-full h-full object-contain"
+                  />
+                  <button
+                    onClick={() => {
+                      setVideoPreview(null);
+                      setVideoFile(null);
+                    }}
+                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+                  >
+                    <Icon name="X" size={20} className="text-white" />
+                  </button>
+                </div>
+                
+                {videoFile && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Icon name="FileVideo" size={16} />
+                    <span className="truncate flex-1">{videoFile.name}</span>
+                    <span>{(videoFile.size / (1024 * 1024)).toFixed(1)} MB</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {videoPreview && (
+              <>
+                <Textarea 
+                  placeholder="Добавьте описание к видео..." 
+                  className="bg-secondary border-border resize-none"
+                  value={videoDescription}
+                  onChange={(e) => setVideoDescription(e.target.value)}
+                  rows={3}
+                />
+                
+                {isUploading && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Загрузка...</span>
+                      <span className="font-medium">{uploadProgress}%</span>
+                    </div>
+                    <Progress value={uploadProgress} className="h-2" />
+                  </div>
+                )}
+                
+                <Button 
+                  className="w-full bg-accent text-accent-foreground hover:bg-accent/90 font-semibold"
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <>
+                      <Icon name="Loader2" size={20} className="mr-2 animate-spin" />
+                      Загрузка...
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="Upload" size={20} className="mr-2" />
+                      Опубликовать
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
